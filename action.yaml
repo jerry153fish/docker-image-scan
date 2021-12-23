@@ -1,0 +1,52 @@
+name: "Docker image scan"
+description: "Docker image scan with grype"
+inputs:
+  image:
+    description: "The image to scan."
+    required: true
+  severity-cutoff:
+    description: 'Optionally specify the minimum vulnerability severity to trigger an "error" level.  Valid choices are "negligible", "low", "medium", "high" and "critical".'
+    required: false
+  failed-cves:
+    description: "List of CVEs that failed to scan."
+    required: false
+
+outputs:
+  file:
+    description: "The file path of the scan results."
+    value: ${{ steps.scan.outputs.file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Image scan
+      id: scan
+      shell: bash
+      run: |
+        set -x
+        curl https://raw.githubusercontent.com/anchore/grype/main/install.sh | bash -s
+
+        cmd=${{ inputs.image }}
+        if [[ -n "${{ inputs.severity-cutoff }}" ]]; then
+          cmd="${cmd} --fail-on ${{ inputs.severity-cutoff }}"
+        fi
+
+        fileName="grype-$(date +%F).csv"
+        ./bin/grype $cmd > $fileName
+
+        code=$?
+
+        if [[ -n "${{ inputs.failed-cves }}" ]]; then
+          cves=${{ inputs.failed-cves }}
+          for i in ${cves//,/ }
+          do
+              if grep -q "$i" "$fileName"; then
+                  echo "CVE $i failed to scan"
+                  code=1
+              fi
+          done
+        fi
+
+        echo "::set-output name=file::$fileName"
+
+        exit $code
